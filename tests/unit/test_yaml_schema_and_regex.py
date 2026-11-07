@@ -3,7 +3,7 @@ import re
 
 import pytest
 import yaml
-from schema import Schema, Optional, And, Or
+from schema import And, Optional, Or, Schema, SchemaError
 
 BASE_DIRS = ["nettacker/modules/vuln", "nettacker/modules/scan", "nettacker/modules/brute"]
 
@@ -50,12 +50,23 @@ HTTP_CONDITION_SCHEMA = Schema(
     ignore_extra_keys=False,  # reject any other condition field
 )
 
+
+def _single_name(value):
+    return bool(value.strip()) and "," not in value
+
+
+TEMP_EVENT_DEPENDENCY = Schema(
+    {"name": And(str, _single_name), Optional("match_port"): bool}, ignore_extra_keys=False
+)
+
 HTTP_RESPONSE_SCHEMA = Schema(
     {
         Optional("condition_type"): And(str, lambda s: s.lower() in ["and", "or"]),
         Optional("conditions"): dict,
         Optional("log"): str,
-        Optional("dependent_on_temp_event"): str,
+        Optional("dependent_on_temp_event"): Or(
+            str, TEMP_EVENT_DEPENDENCY, [TEMP_EVENT_DEPENDENCY]
+        ),
         Optional("save_to_temp_events_only"): str,
         Optional("success_conditions"): object,
     },
@@ -295,3 +306,33 @@ def test_yaml_schema_and_regex_valid(yaml_file):
 
     for regex in regexes:
         assert is_valid_regex(regex), f"Invalid regex in {yaml_file}: `{regex}`"
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "a",
+        "a,b",
+        {"name": "a"},
+        {"name": "a", "match_port": True},
+        [{"name": "a"}, {"name": "b", "match_port": True}],
+    ],
+)
+def test_dependent_on_temp_event_schema_accepts(value):
+    HTTP_RESPONSE_SCHEMA.validate({"dependent_on_temp_event": value})
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        {"name": ""},
+        {"name": "a,b"},
+        {"match_port": True},
+        {"name": "a", "match_prt": True},
+        {"name": "a", "match_port": "yes"},
+        ["a", "b"],
+    ],
+)
+def test_dependent_on_temp_event_schema_rejects(value):
+    with pytest.raises(SchemaError):
+        HTTP_RESPONSE_SCHEMA.validate({"dependent_on_temp_event": value})

@@ -404,7 +404,7 @@ def submit_temp_logs_to_db(log):
         return False
 
 
-def find_temp_events(target, module_name, scan_id, event_name):
+def find_temp_events(target, module_name, scan_id, event_name, port=None):
     """
     select all events by scan_unique id, target, module_name
 
@@ -413,11 +413,13 @@ def find_temp_events(target, module_name, scan_id, event_name):
         module_name: module name
         scan_id: unique scan identifier
         event_name: event_name
+        port: if given, only return an event saved for this port; None matches any port
 
     Returns:
         an array with JSON events or an empty array
     """
     session = create_connection()
+    encoded_port = json.dumps(port) if port is not None else None
     if isinstance(session, tuple):
         connection, cursor = session
         try:
@@ -426,11 +428,11 @@ def find_temp_events(target, module_name, scan_id, event_name):
                 SELECT event
                 FROM temp_events
                 WHERE target = ? AND module_name = ? AND scan_unique_id = ? AND event_name = ?
+                AND (? IS NULL OR port = ?)
                 LIMIT 1
-            """,
-                (target, module_name, scan_id, event_name),
+                """,
+                (target, module_name, scan_id, event_name, encoded_port, encoded_port),
             )
-
             row = cursor.fetchone()
             if row:
                 return row[0]
@@ -445,16 +447,17 @@ def find_temp_events(target, module_name, scan_id, event_name):
             except Exception:
                 pass
     else:
-        result = (
-            session.query(TempEvents)
-            .filter(
-                TempEvents.target == target,
-                TempEvents.module_name == module_name,
-                TempEvents.scan_unique_id == scan_id,
-                TempEvents.event_name == event_name,
-            )
-            .first()
-        )
+        filters = [
+            TempEvents.target == target,
+            TempEvents.module_name == module_name,
+            TempEvents.scan_unique_id == scan_id,
+            TempEvents.event_name == event_name,
+        ]
+
+        if encoded_port is not None:
+            filters.append(TempEvents.port == encoded_port)
+
+        result = session.query(TempEvents).filter(*filters).first()
 
         return result.event if result else []
 
