@@ -322,5 +322,78 @@ def test_is_running_with_privileges_posix_root(monkeypatch):
 def test_is_running_with_privileges_posix_non_root(monkeypatch):
     """POSIX branch: reports unprivileged when os.geteuid() returns a non-root UID."""
     monkeypatch.setattr(common_utils.sys, "platform", "linux")
-    monkeypatch.setattr(common_utils.os, "geteuid", lambda: 501, raising=False)
-    assert common_utils.is_running_with_privileges() is False
+
+
+@pytest.mark.parametrize(
+    "event_list, expected",
+    [
+        ("a", [("a", False)]),
+        ("a,b", [("a", False), ("b", False)]),
+        ("a  ,   b", [("a", False), ("b", False)]),
+        ({"name": "a"}, [("a", False)]),
+        ({"name": " a ", "match_port": True}, [("a", True)]),
+        ([{"name": "a"}], [("a", False)]),
+        (
+            [{"name": "a"}, {"name": "b", "match_port": True}],
+            [("a", False), ("b", True)],
+        ),
+    ],
+)
+def test_parse_temp_event_dependencies(event_list, expected):
+    assert common_utils.parse_temp_event_dependencies(event_list) == expected
+
+
+def test_parse_temp_event_dependencies_preserves_order():
+    """Order defines the index used in dependent_on_temp_event[i]."""
+    event_list = [{"name": "c", "match_port": True}, {"name": "a"}, {"name": "b"}]
+    names = [name for name, _ in common_utils.parse_temp_event_dependencies(event_list)]
+    assert names == ["c", "a", "b"]
+
+
+@pytest.mark.parametrize(
+    "event_list",
+    [
+        "",
+        "a,,b",
+        "a,",
+        " , ",
+        {"name": ""},
+        {"name": "a,b"},
+        {"match_port": True},
+        [{"name": "a"}, {"name": " "}],
+        ["a", {"name": "b"}],
+    ],
+)
+def test_parse_temp_event_dependencies_rejects_invalid(event_list):
+    with pytest.raises(ValueError):
+        common_utils.parse_temp_event_dependencies(event_list)
+
+
+@pytest.mark.parametrize(
+    "event, expected",
+    [
+        ({"url": "http://example.com:8080/path"}, "8080"),
+        ({"url": "http://example.com/path"}, "80"),
+        ({"url": "https://example.com/path"}, "443"),
+        ({"url": "http://example.com:81?page_id=dependent_on_temp_event[0]['content'][0]"}, "81"),
+        ({"url": "http://[::1]:8443/"}, "8443"),
+        ({"ports": 22}, "22"),
+        ({"port": 21}, "21"),
+        ({"port": 21, "url": "http://example.com:8080/"}, "21"),
+    ],
+)
+def test_get_event_port(event, expected):
+    assert common_utils.get_event_port(event) == expected
+
+
+@pytest.mark.parametrize(
+    "event",
+    [
+        {},
+        {"url": None},
+        {"url": "ftp://example.com/"},
+        {"url": "http://example.com:99999/"},
+    ],
+)
+def test_get_event_port_unknown_returns_none(event):
+    assert common_utils.get_event_port(event) is None

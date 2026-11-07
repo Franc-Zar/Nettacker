@@ -13,10 +13,82 @@ import string
 import sys
 import time
 from itertools import product
+from urllib.parse import urlparse
 
 from nettacker import logger
 
 log = logger.get_logger()
+
+
+DEFAULT_PORTS = {"http": 80, "https": 443}
+
+
+def get_event_port(event):
+    """
+    Return the port of the request described by an event.
+
+    Uses the explicit "ports"/"port" key when present, otherwise the port of the
+    event's URL (falling back to the scheme's default port).
+
+    Args:
+        event: the event (sub step) dictionary
+
+    Returns:
+        the port as a string, or None if it cannot be determined
+    """
+    explicit_port = event.get("ports") or event.get("port")
+    if explicit_port:
+        return str(explicit_port)
+
+    url = event.get("url")
+    if not isinstance(url, str):
+        return None
+
+    try:
+        parsed = urlparse(url)
+        port = parsed.port or DEFAULT_PORTS.get(parsed.scheme)
+    except ValueError:
+        return None
+
+    return str(port) if port else None
+
+
+def parse_temp_event_dependencies(event_list):
+    """
+    Return the temp events a step depends on, in declared order.
+
+    Accepts the comma-separated string form ("a,b"), a single-event dict
+    {"name": "a", "match_port": bool}, or a list of such dicts. Order is
+    preserved, since it defines the index used in dependent_on_temp_event[i].
+
+    Args:
+        event_list: the dependent_on_temp_event value from the module YAML
+
+    Returns:
+        a list of (event_name, match_port) tuples
+
+    Raises:
+        ValueError: if an event name is empty, a dict name contains a comma,
+            or a list item is not a dict
+    """
+    if isinstance(event_list, str):
+        names = [name.strip() for name in event_list.split(",")]
+        if not all(names):
+            raise ValueError(f"Empty temp event name in dependent_on_temp_event: {event_list!r}")
+        return [(name, False) for name in names]
+
+    items = [event_list] if isinstance(event_list, dict) else event_list
+    dependencies = []
+    for item in items:
+        if not isinstance(item, dict):
+            raise ValueError(f"Invalid temp event in dependent_on_temp_event: {item!r}")
+        name = item.get("name", "").strip()
+        
+        if not name or "," in name:
+            raise ValueError(f"Invalid temp event name in dependent_on_temp_event: {item!r}")
+        dependencies.append((name, item.get("match_port", False)))
+
+    return dependencies
 
 
 def replace_dependent_response(log, response_dependent):

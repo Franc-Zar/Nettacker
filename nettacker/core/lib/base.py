@@ -9,7 +9,12 @@ import yaml
 
 from nettacker.config import Config
 from nettacker.core.messages import messages as _
-from nettacker.core.utils.common import merge_logs_to_list, remove_sensitive_header_keys
+from nettacker.core.utils.common import (
+    merge_logs_to_list,
+    remove_sensitive_header_keys,
+    get_event_port,
+    parse_temp_event_dependencies,
+)
 from nettacker.database.db import find_temp_events, submit_logs_to_db, submit_temp_logs_to_db
 from nettacker.logger import TerminalCodes, get_logger
 
@@ -46,11 +51,15 @@ class BaseEngine(ABC):
                     filter_index += 1
             return content
 
-    def get_dependent_results_from_database(self, target, module_name, scan_id, event_names):
+    def get_dependent_results_from_database(
+        self, target, module_name, scan_id, event_list, port=None
+    ):
         events = []
-        for event_name in event_names.split(","):
+        for event_name, match_port in parse_temp_event_dependencies(event_list):
             while True:
-                event = find_temp_events(target, module_name, scan_id, event_name)
+                event = find_temp_events(
+                    target, module_name, scan_id, event_name, port if match_port else None
+                )
                 if event:
                     events.append(json.loads(event)["response"]["conditions_results"])
                     break
@@ -130,7 +139,7 @@ class BaseEngine(ABC):
                     "module_name": module_name,
                     "scan_id": scan_id,
                     "event_name": event["response"]["save_to_temp_events_only"],
-                    "port": event.get("ports", ""),
+                    "port": get_event_port(event) or "",
                     "event": event,
                     "data": response,
                 }
@@ -280,7 +289,11 @@ class BaseEngine(ABC):
 
         if "dependent_on_temp_event" in backup_response:
             temp_event = self.get_dependent_results_from_database(
-                target, module_name, scan_id, backup_response["dependent_on_temp_event"]
+                target,
+                module_name,
+                scan_id,
+                backup_response["dependent_on_temp_event"],
+                get_event_port(sub_step),
             )
             sub_step = self.replace_dependent_values(sub_step, temp_event)
 

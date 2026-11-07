@@ -11,6 +11,7 @@ import aiohttp
 
 from nettacker.core.lib.base import BaseEngine
 from nettacker.core.utils.common import (
+    get_event_port,
     get_http_header_key,
     get_http_header_value,
     replace_dependent_response,
@@ -235,6 +236,7 @@ class HttpEngine(BaseEngine):
                 module_name,
                 scan_id,
                 backup_response["dependent_on_temp_event"],
+                get_event_port(sub_step),
             )
             sub_step = self.replace_dependent_values(sub_step, temp_event)
         backup_response = copy.deepcopy(sub_step["response"])

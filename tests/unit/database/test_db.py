@@ -747,7 +747,7 @@ class TestDatabase:
         expected_query = """
             SELECT event
             FROM temp_events
-            WHERE target = ? AND module_name = ? AND scan_unique_id = ? AND event_name = ?
+            WHERE target = ? AND module_name = ? AND scan_unique_id = ? AND event_name = ? AND (? IS NULL OR port = ?)
             LIMIT 1
         """
 
@@ -756,7 +756,42 @@ class TestDatabase:
             return " ".join(sql.split())
 
         assert normalize(called_query) == normalize(expected_query)
-        assert called_params == ("192.168.1.1", "port_scan", "scan_123", "event_1")
+        assert called_params == ("192.168.1.1", "port_scan", "scan_123", "event_1", None, None)
+        assert result == '{"test": "data"}'
+
+    @patch("nettacker.database.db.create_connection")
+    def test_find_temp_events_with_port_sqlite(self, mock_create_conn):
+        """Test find_temp_events selected also by port with SQLite"""
+        mock_connection = Mock()
+        mock_cursor = Mock()
+        mock_create_conn.return_value = (mock_connection, mock_cursor)
+
+        mock_cursor.fetchone.return_value = ('{"test": "data"}',)
+
+        result = find_temp_events("192.168.1.1", "port_scan", "scan_123", "event_1", "8080")
+
+        called_query, called_params = mock_cursor.execute.call_args[0]
+
+        expected_query = """
+            SELECT event
+            FROM temp_events
+            WHERE target = ? AND module_name = ? AND scan_unique_id = ? AND event_name = ? AND (? IS NULL OR port = ?)
+            LIMIT 1
+        """
+
+        # Normalize whitespace (collapse multiple spaces/newlines into one space)
+        def normalize(sql: str) -> str:
+            return " ".join(sql.split())
+
+        assert normalize(called_query) == normalize(expected_query)
+        assert called_params == (
+            "192.168.1.1",
+            "port_scan",
+            "scan_123",
+            "event_1",
+            json.dumps("8080"),
+            json.dumps("8080"),
+        )
         assert result == '{"test": "data"}'
 
     # -------------------------------------------------------
